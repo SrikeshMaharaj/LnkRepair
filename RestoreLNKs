@@ -1,0 +1,63 @@
+#Create new PSDrive
+New-PSDrive -PSProvider Registry -Name HKU -Root HKEY_USERS
+
+#Define All User Profile location
+$allUsersStartMenuPrograms = "$env:ALLUSERSPROFILE\microsoft\windows\start menu\programs"
+
+#Define consolidated source path for shortcuts
+$consolidatedSource = ""
+
+try {
+    #Retrieve all the shortcut files in the consolidated source
+    $shortcuts = Get-ChildItem $consolidatedSource -Filter *.lnk 
+    #Loop through each shortcut
+    ForEach($shortcut in $shortcuts) {
+        #Define the shortcut path
+        $shortcutPath = $shortcut.FullName
+        #Create a new object for the Shell.Application com object
+        $shell = New-Object -ComObject Shell.Application
+        $directoryName = $shortcut.DirectoryName
+        $target = $shell.NameSpace($shortcutPath).Self.Path
+        #Check if the target path exists
+        write-host "Checking: $directoryName"
+
+        If($target -ne $null -and $target -ne "")
+        {
+            If(Test-Path $target)
+            {
+                #Replace the source path with the target path
+                $newPath = $directoryName.replace("$consolidatedSource","$allUsersStartMenuPrograms")
+                #Copy the shortcut to the new location
+                write-host "Found path $target, copying $shortcutPath to $newPath"
+                try {
+                    Copy-Item -Path $shortcutPath -Destination "$newPath" -WhatIf
+                } catch {
+                    write-host "Error: $($_.Exception.Message)"
+                }
+            }
+        }
+    }
+
+    #Fix User Taskbar
+    $selectedUserSID = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -ErrorAction Stop)."SelectedUserSID"
+    $byteArrayFromRegistry = (Get-ItemProperty -Path "HKU:\$selectedUserSID\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Taskband" -ErrorAction Stop)."FavoritesResolve"
+    $ascii0 = [char]0
+    $taskbar = ($byteArrayFromRegistry | ForEach{ [char]$_ }) -join "" -replace $ascii0 
+    $newTaskbar = $taskbar.Replace("OSDisk","~")
+    $taskbarArr = $newTaskbar.Split("~")
+    $taskbarArr = $taskbarArr.Split("``")
+
+    #loop through each line of the taskbar
+    ForEach($line in $taskbarArr)
+    {
+        #Check if line is a shortcut
+        If($line -like '*.lnk')
+        {
+            #Check if the file path exists
+            If(!(Test-Path $line))
+            {
+                #Define missing file name and the path of the shortcut
+                $missingFile = $line.Split("\")[10]
+                $lnkPath = $line.Replace("\$missingFile","")
+                write-host "$missingFile"
+                write-host "$
